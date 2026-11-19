@@ -1,0 +1,6 @@
+/bin/
+*.db
+*.db-*
+.env
+.env.*
+!.env.example

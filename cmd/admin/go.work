@@ -1,0 +1,17 @@
+go 1.27
+
+use (
+	.
+	../../libs/boot
+	../../libs/db
+	../../libs/dbtest
+	../../libs/validate
+	../../migrations
+	../../services/accounts/model
+	../../services/accounts/postgres
+	../../services/accounts/session
+	../../services/community/model
+	../../services/community/postgres
+	../../services/puzzles/model
+	../../services/puzzles/postgres
+)

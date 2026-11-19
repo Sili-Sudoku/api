@@ -1,0 +1,28 @@
+# Local front door: one address for the web app, one program per area behind it. The cloud load balancer uses the same rules.
+# Order matters: the first matching rule wins, and /v1/me/history must come before /v1/me. TestCaddyfileRoutesTheContract
+# checks these patterns against contract/openapi.yaml, so edit them and the routing table in STYLE.md together.
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	@health path /healthz
+	respond @health 204
+
+	route {
+		@history path_regexp ^/v1/me/history(/[^/]+)?$
+		reverse_proxy @history {$HISTORY_UPSTREAM:localhost:8084}
+
+		@accounts path_regexp ^/v1/(accounts|sessions(/current)?|me)$
+		reverse_proxy @accounts {$ACCOUNTS_UPSTREAM:localhost:8081}
+
+		@community path_regexp ^/v1/(me/(following|feed)|users/[^/]+(/follow)?|comments/[^/]+(/report)?|puzzles/[^/]+/(ratings|comments|stats))$
+		reverse_proxy @community {$COMMUNITY_UPSTREAM:localhost:8083}
+
+		@puzzles path_regexp ^/v1/puzzles(/[^/]+(/(owner|report))?)?$
+		reverse_proxy @puzzles {$PUZZLES_UPSTREAM:localhost:8082}
+
+		respond 404
+	}
+}

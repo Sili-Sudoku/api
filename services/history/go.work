@@ -1,0 +1,22 @@
+go 1.27
+
+use (
+	../../libs/cursor
+	../../libs/db
+	../../libs/dbtest
+	../../libs/http_outcome
+	../../libs/mockprovider
+	../../libs/server
+	../../libs/stack_trace
+	../../libs/validate
+	../../migrations
+	../accounts/model
+	../accounts/postgres
+	../accounts/session
+	../community/model
+	.
+	./model
+	./postgres
+	../puzzles/model
+	../puzzles/postgres
+)

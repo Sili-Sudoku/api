@@ -1,0 +1,11 @@
+go 1.27
+
+use (
+	../http_outcome
+	.
+	../validate
+	../../services/accounts/model
+	../../services/community/model
+	../../services/history/model
+	../../services/puzzles/model
+)

@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sudoku.silical.dev/puzzle-definition.schema.json",
+  "title": "PuzzleDefinition",
+  "description": "A Sili Sudoku puzzle. All text fields are plain text.",
+  "type": "object",
+  "required": [
+    "version",
+    "metadata",
+    "geometry",
+    "domain",
+    "constraints"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "id",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 100,
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Author credit. Plain text."
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Where the puzzle came from: an https link. Shown as text; opens only after a confirm."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "difficulty": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "string",
+            "maxLength": 50
+          }
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "grid",
+            "composite"
+          ]
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "boxWidth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "boxHeight": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "required": [
+        "values"
+      ],
+      "properties": {
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "regions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^(g\\d+/)?r\\d+c\\d+$"
+        }
+      }
+    },
+    "givens": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^(g\\d+/)?r\\d+c\\d+$"
+      }
+    },
+    "solution": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^(g\\d+/)?r\\d+c\\d+$"
+      }
+    },
+    "fog": {
+      "type": "object",
+      "required": [
+        "hidden"
+      ],
+      "properties": {
+        "hidden": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(g\\d+/)?r\\d+c\\d+$"
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "when",
+          "then"
+        ]
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": [
+          "array",
+          "object"
+        ]
+      }
+    },
+    "presentation": {
+      "type": "object"
+    }
+  }
+}
