@@ -1,13 +1,6 @@
 go 1.27
 
 use (
-	./cmd/accounts
-	./cmd/admin
-	./cmd/community
-	./cmd/history
-	./cmd/migrate
-	./cmd/puzzles
-	./cmd/seed
 	./integration
 	./libs/boot
 	./libs/boundary
@@ -36,4 +29,7 @@ use (
 	./services/puzzles
 	./services/puzzles/model
 	./services/puzzles/postgres
+	./tools/admin
+	./tools/migrate
+	./tools/seed
 )

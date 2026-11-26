@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	mp "github.com/Sili-Sudoku/api/libs/mockprovider"
@@ -133,4 +135,73 @@ func TestWorker_ValidatePending(t *testing.T) {
 			t.Fatalf("verdicts = %v", verdicts)
 		}
 	})
+}
+
+func TestWorker_Validate_OneRunPerPuzzle(t *testing.T) {
+	pending := &model.Puzzle{ID: "a", Body: []byte(`{}`), Status: model.Pending}
+	db := &mp.Puzzle{T: t,
+		FindFunc:       func(context.Context, string) (*model.Puzzle, error) { return pending, nil },
+		SetVerdictFunc: func(context.Context, string, model.Status, validate.Verdict) error { return nil }}
+	started, release := make(chan struct{}), make(chan struct{})
+	var runs atomic.Int32
+	w := New(db, engine(func(context.Context, []byte) (validate.Verdict, error) {
+		runs.Add(1)
+		started <- struct{}{}
+		<-release
+		return validate.Verdict{Valid: true, Solutions: "one"}, nil
+	}))
+
+	done := make(chan error)
+	go func() { done <- w.Validate(context.Background(), "a") }()
+	<-started
+	if err := w.Validate(context.Background(), "a"); err != nil { // returns at once, does not run the engine
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-done; err != nil || runs.Load() != 1 {
+		t.Fatalf("err = %v, runs = %d", err, runs.Load())
+	}
+}
+
+func TestWorker_Validate_AtMostMaxConcurrent(t *testing.T) {
+	db := &mp.Puzzle{T: t,
+		FindFunc: func(_ context.Context, id string) (*model.Puzzle, error) {
+			return &model.Puzzle{ID: id, Body: []byte(`{}`), Status: model.Pending}, nil
+		},
+		SetVerdictFunc: func(context.Context, string, model.Status, validate.Verdict) error { return nil }}
+	var now, peak atomic.Int32
+	release := make(chan struct{})
+	w := New(db, engine(func(context.Context, []byte) (validate.Verdict, error) {
+		n := now.Add(1)
+		for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
+		}
+		<-release
+		now.Add(-1)
+		return validate.Verdict{Valid: true, Solutions: "one"}, nil
+	}))
+
+	var wg sync.WaitGroup
+	for i := 0; i < MaxConcurrent+4; i++ {
+		wg.Add(1)
+		go func(id string) { defer wg.Done(); _ = w.Validate(context.Background(), id) }(string(rune('a' + i)))
+	}
+	for now.Load() < MaxConcurrent {
+	}
+	close(release)
+	wg.Wait()
+	if peak.Load() != MaxConcurrent {
+		t.Fatalf("peak = %d, want %d", peak.Load(), MaxConcurrent)
+	}
+}
+
+func TestWorker_Validate_WaitsForASlotUntilTheContextEnds(t *testing.T) {
+	w := New(&mp.Puzzle{T: t}, validate.Accept{})
+	for i := 0; i < MaxConcurrent; i++ {
+		w.slots <- struct{}{}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := w.Validate(ctx, "a"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
 }

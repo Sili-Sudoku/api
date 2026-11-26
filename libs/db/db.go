@@ -8,12 +8,11 @@ import (
 	"io/fs"
 	"sort"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
+func Open(ctx context.Context, url string) (*Pool, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		return nil, err
@@ -24,13 +23,13 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
-	return pool, nil
+	return &Pool{p: pool}, nil
 }
 
 // Migrate applies each *.sql file in fsys once, in name order, each in its own transaction.
 // Where the database has them, an advisory lock stops two starting instances from migrating at the same time.
-func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) error {
-	conn, err := pool.Acquire(ctx)
+func Migrate(ctx context.Context, pool *Pool, fsys fs.FS) error {
+	conn, err := pool.p.Acquire(ctx)
 	if err != nil {
 		return err
 	}
@@ -94,14 +93,4 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) error {
 	}
 
 	return nil
-}
-
-// DBTX is what the Postgres clients need. A *pgxpool.Pool and a pgx.Tx both satisfy it, so a test can run a client on
-// a transaction that it rolls back. Begin on a transaction opens a savepoint, so a client that opens its own
-// transaction nests inside it.
-type DBTX interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
-	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }

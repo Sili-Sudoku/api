@@ -32,7 +32,7 @@ var (
 // Tx begins a transaction that is rolled back when the test ends. Build the client under test on it. A client that
 // opens its own transaction gets a savepoint. A statement that fails aborts the whole transaction (25P02), so do
 // that last in a test, or inside a savepoint of its own.
-func Tx(t *testing.T) pgx.Tx {
+func Tx(t *testing.T) db.DBTX {
 	t.Helper()
 	pool := sharedPool(t)
 	ctx := context.Background()
@@ -43,12 +43,12 @@ func Tx(t *testing.T) pgx.Tx {
 
 	t.Cleanup(func() { _ = tx.Rollback(ctx) })
 
-	return tx
+	return db.WrapTx(tx)
 }
 
 // Pool gives a pool on the _commit database, with the schema and no rows. What the test writes is really committed
 // and emptied again when the test ends. Tests that use it do not run at the same time.
-func Pool(t *testing.T) *pgxpool.Pool {
+func Pool(t *testing.T) *db.Pool {
 	t.Helper()
 	url := testURL(t)
 	ctx := context.Background()
@@ -78,7 +78,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 		commitM.Unlock()
 	})
 
-	return commit
+	return db.Wrap(commit)
 }
 
 func testURL(t *testing.T) string {
@@ -97,7 +97,7 @@ func sharedPool(t *testing.T) *pgxpool.Pool {
 	mu.Lock()
 	defer mu.Unlock()
 	if shared == nil {
-		pool, err := db.Open(context.Background(), url)
+		pool, err := pgxpool.New(context.Background(), url)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func migrateLocked(pool *pgxpool.Pool) error {
 		return err
 	}
 
-	if err := db.Migrate(ctx, pool, migrations.FS); err != nil {
+	if err := db.Migrate(ctx, db.Wrap(pool), migrations.FS); err != nil {
 		return err
 	}
 

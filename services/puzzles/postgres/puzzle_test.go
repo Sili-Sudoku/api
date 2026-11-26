@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Sili-Sudoku/api/libs/db"
 	"testing"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/Sili-Sudoku/api/libs/validate"
 	"github.com/Sili-Sudoku/api/services/puzzles/model"
 	"github.com/Sili-Sudoku/api/services/puzzles/postgres"
-	"github.com/jackc/pgx/v5"
 )
 
 // These tests need TEST_DATABASE_URL and are skipped without it.
@@ -21,7 +21,7 @@ func setup(t *testing.T) (*postgres.Puzzle, func() int64) {
 	return postgres.NewPuzzle(pool), func() int64 { return newUser(t, pool, &n) }
 }
 
-func newUser(t *testing.T, pool pgx.Tx, n *int) int64 {
+func newUser(t *testing.T, pool db.DBTX, n *int) int64 {
 	*n++
 	var id int64
 	err := pool.QueryRow(context.Background(),

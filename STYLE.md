@@ -13,7 +13,7 @@ community or history.
 - A module is a directory with a `go.mod` whose path is `github.com/Sili-Sudoku/api/<directory>`, so import paths do not change
   when modules are cut differently. The pieces: every `libs/<lib>`; every `services/<area>`, plus `services/<area>/model`
   and `services/<area>/postgres` as modules of their own (other areas import only those two, never the endpoints), and
-  `services/accounts/session` (the session check that `libs/server` uses); every `cmd/<program>`; `migrations`; `integration`.
+  `services/accounts/session` (the session check that `libs/server` uses); `tools/<tool>`; `migrations`; `integration`. The main package of a program is at the root of its `services/<area>` module.
 - `go.mod` lists outside dependencies only (pgx, x/crypto). It never requires a sibling module. Run `go work sync` to fill in
   the indirect ones.
 - `go.work` (in each module) lists the module itself and every sibling it builds with, directly or through another module,
@@ -23,11 +23,11 @@ community or history.
 - Adding a module: create its `go.mod` and `go.work`, add it to the root `go.work`, add it to the `go.work` of every module
   that imports it and of every module that imports those. `libs/boundary` (`TestWorkspaces`) fails with the exact lines that are
   missing or extra, so run it after any import or module change.
-- The Dockerfile builds inside `cmd/<program>`, so the image only sees that program's modules.
+- Each program has a `main.dockerfile` next to its main (as in ws2wh). It copies the `go.mod` of every module in the program's `go.work`, downloads, then copies those modules and builds, so the image only sees that program's modules and the download layer is cached. The files are generated: `TestDockerfiles` fails when one is out of date with its `go.work` or `go.sum` files, and `UPDATE_DOCKERFILES=1 go test github.com/Sili-Sudoku/api/libs/boundary -run Dockerfiles` rewrites them.
 
 ## Deployables: one program per area (decided by the user)
 Each area is its own program, packaged as its own container and run as one Cloud Run service; locally the same containers sit
-on one network group. One `cmd/<area>/main.go` per program, one Dockerfile with a `SERVICE` build arg. Programs: `accounts`, `puzzles`, `community`, `history`. `cmd/admin` and `cmd/seed` stay tools. Isolation comes from separate binaries and images, and from separate modules (below), so a dependency
+on one network group. One `services/<area>/main.go` per program (as in ws2wh, the main sits with its service), one `main.dockerfile` each. Programs: `accounts`, `puzzles`, `community`, `history`. `tools/admin`, `tools/migrate` and `tools/seed` are the tools. Isolation comes from separate binaries and images, and from separate modules (below), so a dependency
 one area needs is not carried by the others.
 
 - A program imports its own service, `libs`, and only what it must share. Known shares: every program checks the session
@@ -45,14 +45,14 @@ one area needs is not carried by the others.
                  /v1/puzzles/{id}/ratings  /v1/puzzles/{id}/comments  /v1/puzzles/{id}/stats       (before /v1/puzzles)
       puzzles    /v1/puzzles  /v1/puzzles/{id}  /v1/puzzles/{id}/owner  /v1/puzzles/{id}/report
 
-- Migrations do not run at startup of four programs at once. Make `cmd/migrate` (a Cloud Run job, and a one-off command locally)
+- Migrations do not run at startup of four programs at once. Make `tools/migrate` (a Cloud Run job, and a one-off command locally)
   and have it apply the files under an advisory lock.
-- Cloud Run may pause CPU after a response and scales to zero. The publish worker and its 30 s sweep live in `puzzles`: say in
-  the README what that service needs (minimum instances, CPU always allocated) or move the sweep to a scheduled job. Rate limits
+- Cloud Run only gives CPU to requests and scales to zero. Nothing may run between requests: do work inside the request (as
+  `puzzles` does for validation) or in a scheduled job, never in a background goroutine or sweep loop. Rate limits
   are in-process, so they are per instance; fine for the MVP, note it.
-- Status: done locally. `cmd/{accounts,puzzles,community,history}` and `cmd/migrate` exist, `libs/boot` is only the pool, validator and
+- Status: done locally. `services/{accounts,puzzles,community,history}/main.go` and `tools/migrate` exist, `libs/boot` is only the pool, validator and
   server loop, `deploy/Caddyfile` routes by path, and `integration/programs_test.go` checks the routing table against the contract and the Caddyfile.
-  Not tried: the Dockerfile and the cloud load balancer (the box cannot build images).
+  The dockerfiles of `history` and `puzzles` build on the host; the cloud load balancer is not tried.
 
 - The import rules above are enforced, not just written: `libs/boundary` runs in `go test ./...` and fails when a package
   imports where it must not (an endpoint importing another service, a model importing its postgres client, a lib importing
@@ -65,7 +65,7 @@ content-addressed puzzle ids, argon2id with the dummy hash, the OpenAPI contract
 existing route and response shape. The web app must not notice the refactor.
 
 ## Remove
-- Every `memstore.go`, the `MemoryStore` paths in `cmd/api` and `cmd/seed`, and the memory-mode e2e setup. Report what depended on them first.
+- Every `memstore.go`, the `MemoryStore` paths in the old `cmd/api` and `tools/seed`, and the memory-mode e2e setup. Report what depended on them first.
 - Store tests run against the shared dev CockroachDB (see `CLAUDE.md`) with a database of its own. Unit tests mock each
   endpoint's own small interfaces. Run the existing store tests on Cockroach early; the SQL has never run, so expect failures.
 

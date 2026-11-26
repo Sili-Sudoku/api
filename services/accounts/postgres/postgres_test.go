@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"github.com/Sili-Sudoku/api/libs/db"
 	"testing"
 	"time"
 
@@ -23,15 +24,11 @@ func TestUser(t *testing.T) {
 		t.Fatalf("create: %v %+v", err, ann)
 	}
 	// The failed insert aborts the transaction, so it runs in a savepoint of its own.
-	sp, err := tx.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := postgres.NewUser(sp).Create(ctx, &model.User{Username: "ann_1", PasswordHash: "h", CreatedAt: time.Now()}); !errors.Is(err, model.ErrUsernameTaken) {
+	err := tx.InTx(ctx, func(sp db.DBTX) error {
+		return postgres.NewUser(sp).Create(ctx, &model.User{Username: "ann_1", PasswordHash: "h", CreatedAt: time.Now()})
+	})
+	if !errors.Is(err, model.ErrUsernameTaken) {
 		t.Fatalf("names are unique ignoring case: %v", err)
-	}
-	if err := sp.Rollback(ctx); err != nil {
-		t.Fatal(err)
 	}
 	bob := &model.User{Username: "bob", PasswordHash: "h", CreatedAt: time.Now()}
 	if err := users.Create(ctx, bob); err != nil {

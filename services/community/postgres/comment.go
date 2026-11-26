@@ -8,7 +8,6 @@ import (
 	"github.com/Sili-Sudoku/api/libs/db"
 	"github.com/Sili-Sudoku/api/services/community/model"
 	puzzles "github.com/Sili-Sudoku/api/services/puzzles/model"
-	"github.com/jackc/pgx/v5"
 )
 
 type Comment struct {
@@ -19,7 +18,7 @@ func NewComment(conn db.DBTX) *Comment { return &Comment{db: conn} }
 
 const commentCols = `id, puzzle_id, user_id, body, report_count, moderation, created_at`
 
-func scanComment(row pgx.Row) (*model.Comment, error) {
+func scanComment(row db.Row) (*model.Comment, error) {
 	var c model.Comment
 	var mod string
 	if err := row.Scan(&c.ID, &c.PuzzleID, &c.UserID, &c.Body, &c.Reports, &mod, &c.CreatedAt); err != nil {
@@ -40,7 +39,7 @@ func (this *Comment) Create(ctx context.Context, c *model.Comment) error {
 
 func (this *Comment) Find(ctx context.Context, id int64) (*model.Comment, error) {
 	c, err := scanComment(this.db.QueryRow(ctx, `SELECT `+commentCols+` FROM comments WHERE id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, nil
 	}
 
@@ -49,25 +48,19 @@ func (this *Comment) Find(ctx context.Context, id int64) (*model.Comment, error)
 
 // Delete removes the comment and its reports in one transaction.
 func (this *Comment) Delete(ctx context.Context, id int64) error {
-	tx, err := this.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
+	return this.db.InTx(ctx, func(tx db.DBTX) error {
+		tag, err := tx.Exec(ctx, `DELETE FROM comments WHERE id = $1`, id)
+		if err != nil {
+			return err
+		}
 
-	defer func() { _ = tx.Rollback(ctx) }()
-	tag, err := tx.Exec(ctx, `DELETE FROM comments WHERE id = $1`, id)
-	if err != nil {
-		return err
-	}
+		if tag.RowsAffected() == 0 {
+			return model.ErrNotFound
+		}
+		_, err = tx.Exec(ctx, `DELETE FROM reports WHERE kind = 'comment' AND target = $1`, strconv.FormatInt(id, 10))
 
-	if tag.RowsAffected() == 0 {
-		return model.ErrNotFound
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM reports WHERE kind = 'comment' AND target = $1`, strconv.FormatInt(id, 10)); err != nil {
 		return err
-	}
-
-	return tx.Commit(ctx)
+	})
 }
 
 // List returns the visible comments of the puzzle, newest first, at most limit.
@@ -111,7 +104,7 @@ func (this *Comment) AddReport(ctx context.Context, id, userID int64) (int, erro
 		     ON CONFLICT DO NOTHING RETURNING 1)
 		 UPDATE comments SET report_count = report_count + (SELECT count(*) FROM ins)
 		  WHERE id = $1 RETURNING report_count`, id, userID).Scan(&n)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return 0, model.ErrNotFound
 	}
 

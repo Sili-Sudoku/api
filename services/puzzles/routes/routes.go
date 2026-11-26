@@ -53,7 +53,7 @@ func mount(d Deps, mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/puzzles/{id}/owner", http_outcome.AdaptAuthenticatedEndpoint(auth, claim.New(
 		auth, &claim.DB{Puzzle: d.Puzzles}).Execute))
 	mux.HandleFunc("GET /v1/puzzles/{id}", http_outcome.AdaptEndpoint(getpuzzle.New(
-		auth, &getpuzzle.DB{Puzzle: d.Puzzles, User: d.Users}).Execute))
+		auth, &getpuzzle.DB{Puzzle: d.Puzzles, User: d.Users}, d.Worker).Execute))
 	mux.HandleFunc("POST /v1/puzzles/{id}/report", http_outcome.AdaptAuthenticatedEndpoint(auth, report.New(
 		auth, &report.DB{Puzzle: d.Puzzles}).Execute))
 	mux.HandleFunc("DELETE /v1/puzzles/{id}", http_outcome.AdaptEndpoint(deletepuzzle.New(

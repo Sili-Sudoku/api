@@ -41,6 +41,10 @@ func (this *Endpoint) Execute(ctx context.Context, req *EndpointReq) (resp *Endp
 		return nil, http_outcome.NewError(http.StatusNotFound, errors.New("not found"))
 	}
 
+	if p.Status == model.Pending && this.validator != nil {
+		p = this.retry(ctx, p)
+	}
+
 	user := this.auth.FindUser(ctx)
 	isOwner := user != nil && p.OwnerID == user.ID
 	resp = &EndpointResp{ID: p.ID, Status: p.Status, Verdict: p.Verdict, Mine: isOwner}
@@ -57,6 +61,24 @@ func (this *Endpoint) Execute(ctx context.Context, req *EndpointReq) (resp *Endp
 	}
 
 	return resp, nil
+}
+
+// retry runs the engine again on a pending puzzle and returns its new state. Any failure leaves the puzzle as it was.
+func (this *Endpoint) retry(ctx context.Context, p *model.Puzzle) *model.Puzzle {
+	vctx, cancel := context.WithTimeout(ctx, ValidateTimeout)
+	defer cancel()
+
+	if err := this.validator.Validate(vctx, p.ID); err != nil {
+		log.Printf("validate %s: %v", p.ID, err)
+
+		return p
+	}
+
+	if again, err := this.db.Puzzle.Find(ctx, p.ID); err == nil && again != nil {
+		return again
+	}
+
+	return p
 }
 
 // ownerNames only costs the owner's name when it fails: the puzzle is still served.

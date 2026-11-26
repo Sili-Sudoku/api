@@ -1,6 +1,8 @@
 go 1.27
 
 use (
+	.
+	../../libs/boot
 	../../libs/cursor
 	../../libs/db
 	../../libs/dbtest
@@ -14,9 +16,8 @@ use (
 	../accounts/postgres
 	../accounts/session
 	../community/model
-	.
-	./model
-	./postgres
 	../puzzles/model
 	../puzzles/postgres
+	./model
+	./postgres
 )

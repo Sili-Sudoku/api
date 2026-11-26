@@ -6,8 +6,6 @@ import (
 
 	"github.com/Sili-Sudoku/api/libs/db"
 	"github.com/Sili-Sudoku/api/services/accounts/model"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type User struct {
@@ -19,10 +17,10 @@ func NewUser(conn db.DBTX) *User { return &User{db: conn} }
 const userCols = `id, username, coalesce(email, ''), password_hash, bio, is_admin, created_at`
 
 // scanUser maps no row to nil, nil, as every Find does.
-func scanUser(row pgx.Row) (*model.User, error) {
+func scanUser(row db.Row) (*model.User, error) {
 	var u model.User
 	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Bio, &u.IsAdmin, &u.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -37,8 +35,7 @@ func (this *User) Create(ctx context.Context, u *model.User) error {
 	err := this.db.QueryRow(ctx,
 		`INSERT INTO users (username, email, password_hash, created_at) VALUES ($1, nullif($2, ''), $3, $4) RETURNING id`,
 		u.Username, u.Email, u.PasswordHash, u.CreatedAt).Scan(&u.ID)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+	if errors.Is(err, db.ErrUniqueViolation) {
 		return model.ErrUsernameTaken
 	}
 
@@ -82,25 +79,18 @@ func (this *User) SetAdmin(ctx context.Context, id int64, admin bool) error {
 // Delete removes the user and the sessions with it. The puzzles of the user are deleted or, when deletePuzzles is false,
 // kept without an owner. All of it is one transaction, so a failure leaves the account whole.
 func (this *User) Delete(ctx context.Context, id int64, deletePuzzles bool) error {
-	tx, err := this.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-
-	defer func() { _ = tx.Rollback(ctx) }()
 	puzzles := `UPDATE puzzles SET owner_id = NULL WHERE owner_id = $1`
 	if deletePuzzles {
 		puzzles = `DELETE FROM puzzles WHERE owner_id = $1`
 	}
-	if _, err := tx.Exec(ctx, puzzles, id); err != nil {
-		return err
-	}
 
-	if err := found(tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)); err != nil { // sessions cascade
-		return err
-	}
+	return this.db.InTx(ctx, func(tx db.DBTX) error {
+		if _, err := tx.Exec(ctx, puzzles, id); err != nil {
+			return err
+		}
 
-	return tx.Commit(ctx)
+		return found(tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)) // sessions cascade
+	})
 }
 
 func found(tag interface{ RowsAffected() int64 }, err error) error {

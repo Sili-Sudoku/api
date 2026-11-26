@@ -1,11 +1,10 @@
-// Command puzzles runs publish, browse, get, claim, report and delete as their own program. It also runs the background
-// validation: see "Deployables" in STYLE.md for what the host must provide for that.
+// Command puzzles runs publish, browse, get, claim, report and delete as their own program. Validation runs inside the
+// requests (publish, and a read of a pending puzzle), so nothing runs between requests and the program can scale to zero.
 package main
 
 import (
 	"context"
 	"log"
-	"time"
 
 	"github.com/Sili-Sudoku/api/libs/boot"
 	"github.com/Sili-Sudoku/api/libs/server"
@@ -26,17 +25,6 @@ func main() {
 
 	puzzles := puzzlespg.NewPuzzle(pool)
 	w := worker.New(puzzles, boot.Validator())
-
-	// Puzzles are validated by a background job. This sweep finishes any that a restart or a tool failure left pending.
-	go func() {
-		for {
-			if err := w.ValidatePending(ctx); err != nil {
-				log.Printf("validate pending: %v", err)
-			}
-
-			time.Sleep(30 * time.Second)
-		}
-	}()
 
 	boot.Serve("puzzles", routes.New(routes.Deps{
 		Config:   server.ConfigFromEnv(),

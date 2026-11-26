@@ -35,7 +35,7 @@ type PuzzleDB interface {
 	Create(ctx context.Context, p *model.Puzzle) (created bool, err error)
 }
 
-// Validator is run in the background for every published puzzle: validation never runs inside a request.
+// Validator checks a stored puzzle with the engine and sets its final status. Publish calls it inside the request.
 type Validator interface {
 	Validate(ctx context.Context, id string) error
 }

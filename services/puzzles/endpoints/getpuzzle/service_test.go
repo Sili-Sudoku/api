@@ -32,7 +32,8 @@ func names(t *testing.T, m map[int64]string, err error) *mp.User {
 
 func TestNew(t *testing.T) {
 	auth, db := &mp.OptionalAuth{T: t}, &DB{}
-	if ep := New(auth, db); ep.auth != auth || ep.db != db {
+	v := &mp.Validator{T: t}
+	if ep := New(auth, db, v); ep.auth != auth || ep.db != db || ep.validator != v {
 		t.Fatalf("New did not keep its dependencies: %+v", ep)
 	}
 }
@@ -99,5 +100,35 @@ func TestEndpoint_Execute(t *testing.T) {
 			Input:    &EndpointReq{ID: "p1"},
 			WantResp: &EndpointResp{ID: "p1", Status: model.Published, Verdict: published.Verdict, Puzzle: body, Summary: &summary},
 		},
+	})
+}
+
+func TestEndpoint_Execute_RetriesAPendingPuzzle(t *testing.T) {
+	body := []byte(`{"cells":1}`)
+	pending := &model.Puzzle{ID: "p1", Body: body, Status: model.Pending}
+	done := &model.Puzzle{ID: "p1", Body: body, Status: model.Published, Verdict: &validate.Verdict{Valid: true, Solutions: "one"}}
+
+	t.Run("it_is_published_by_the_retry", func(t *testing.T) {
+		calls := 0
+		db := &mp.Puzzle{T: t, FindFunc: func(context.Context, string) (*model.Puzzle, error) {
+			calls++
+			if calls == 1 {
+				return pending, nil
+			}
+			return done, nil
+		}}
+		v := &mp.Validator{T: t, ValidateFunc: func(context.Context, string) error { return nil }}
+		resp, err := (&Endpoint{auth: user(0), db: &DB{Puzzle: db, User: names(t, nil, nil)}, validator: v}).Execute(context.Background(), &EndpointReq{ID: "p1"})
+		if err != nil || resp.Status != model.Published || resp.Puzzle == nil {
+			t.Fatalf("resp = %+v, err = %v", resp, err)
+		}
+	})
+
+	t.Run("an_engine_failure_leaves_it_pending", func(t *testing.T) {
+		v := &mp.Validator{T: t, ValidateFunc: func(context.Context, string) error { return errors.New("engineErr") }}
+		resp, err := (&Endpoint{auth: user(0), db: &DB{Puzzle: finds(t, pending, nil)}, validator: v}).Execute(context.Background(), &EndpointReq{ID: "p1"})
+		if err != nil || resp.Status != model.Pending || resp.Puzzle != nil {
+			t.Fatalf("resp = %+v, err = %v", resp, err)
+		}
 	})
 }

@@ -16,12 +16,22 @@ func NewSolveHistory(conn db.DBTX) *SolveHistory { return &SolveHistory{db: conn
 // Upsert merges e into the stored entry: the lower time wins and brings its date; otherwise an unknown date is filled in.
 // It returns model.ErrFull instead of adding entry number MaxEntries+1.
 func (this *SolveHistory) Upsert(ctx context.Context, userID int64, e model.Entry) (model.Entry, error) {
-	tx, err := this.db.Begin(ctx)
+	var out model.Entry
+	err := this.db.InTx(ctx, func(tx db.DBTX) error {
+		var err error
+		out, err = this.upsert(ctx, tx, userID, e)
+
+		return err
+	})
 	if err != nil {
 		return model.Entry{}, err
 	}
 
-	defer func() { _ = tx.Rollback(ctx) }()
+	return out, nil
+}
+
+// upsert is one run of the transaction. db.InTx may run it again, so it keeps no state.
+func (this *SolveHistory) upsert(ctx context.Context, tx db.DBTX, userID int64, e model.Entry) (model.Entry, error) {
 	// Serialize the writes of one user, so the count check below cannot be raced past.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, userID); err != nil {
 		return model.Entry{}, err
@@ -40,7 +50,7 @@ func (this *SolveHistory) Upsert(ctx context.Context, userID int64, e model.Entr
 	}
 	// The lower time wins and takes its date; otherwise an unknown date is filled in.
 	var out model.Entry
-	err = tx.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`INSERT INTO solve_history AS h (user_id, puzzle_id, solved_at, seconds)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (user_id, puzzle_id) DO UPDATE SET
@@ -55,7 +65,7 @@ func (this *SolveHistory) Upsert(ctx context.Context, userID int64, e model.Entr
 		return model.Entry{}, err
 	}
 
-	return out, tx.Commit(ctx)
+	return out, nil
 }
 
 func (this *SolveHistory) List(ctx context.Context, userID int64, after *model.Cursor, limit int) ([]model.Entry, error) {

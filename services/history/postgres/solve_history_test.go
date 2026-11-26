@@ -4,19 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Sili-Sudoku/api/libs/db"
 	"testing"
 	"time"
 
 	"github.com/Sili-Sudoku/api/libs/dbtest"
 	"github.com/Sili-Sudoku/api/services/history/model"
 	"github.com/Sili-Sudoku/api/services/history/postgres"
-	"github.com/jackc/pgx/v5"
 )
 
 func ptr[T any](v T) *T { return &v }
 
 // These tests need TEST_DATABASE_URL and are skipped without it.
-func setup(t *testing.T) (pgx.Tx, *postgres.SolveHistory, func() int64) {
+func setup(t *testing.T) (db.DBTX, *postgres.SolveHistory, func() int64) {
 	pool := dbtest.Tx(t)
 	var n int
 	return pool, postgres.NewSolveHistory(pool), func() int64 {

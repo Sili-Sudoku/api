@@ -7,7 +7,6 @@ import (
 	"github.com/Sili-Sudoku/api/libs/db"
 	"github.com/Sili-Sudoku/api/services/community/model"
 	puzzles "github.com/Sili-Sudoku/api/services/puzzles/model"
-	"github.com/jackc/pgx/v5"
 )
 
 type Rating struct {
@@ -35,7 +34,7 @@ func (this *Rating) Find(ctx context.Context, puzzleID string, userID int64) (*m
 	err := this.db.QueryRow(ctx,
 		`SELECT coalesce(stars, 0), coalesce(difficulty, 0) FROM ratings WHERE puzzle_id = $1 AND user_id = $2`,
 		puzzleID, userID).Scan(&r.Stars, &r.Difficulty)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

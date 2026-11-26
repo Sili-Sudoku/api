@@ -149,3 +149,82 @@ func TestCaddyfileRoutesTheContract(t *testing.T) {
 		}
 	}
 }
+
+// The release tool builds the gateway's routes from deploy/deploy.toml: each [[service]] has a name and a list of path
+// patterns (TOML single-quoted strings, so they are plain Go regexps), and the first service that matches wins. This
+// reads that file the way the gateway uses it and checks every contract path reaches the program of the routing table.
+func TestDeployManifestRoutesTheContract(t *testing.T) {
+	raw, err := os.ReadFile("../deploy/deploy.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type service struct {
+		name     string
+		patterns []*regexp.Regexp
+	}
+
+	var services []service
+
+	nameLine := regexp.MustCompile(`^\s*name\s*=\s*"([^"]+)"`)
+	quoted := regexp.MustCompile(`'([^']*)'`)
+	inService, inRoutes := false, false
+
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		switch {
+		case trimmed == "[[service]]":
+			services = append(services, service{})
+			inService, inRoutes = true, false
+		case strings.HasPrefix(trimmed, "["):
+			inService, inRoutes = false, false
+		case inService && nameLine.MatchString(line):
+			services[len(services)-1].name = nameLine.FindStringSubmatch(line)[1]
+		case inService && strings.HasPrefix(trimmed, "routes"):
+			inRoutes = true
+
+			fallthrough
+		case inService && inRoutes:
+			for _, m := range quoted.FindAllStringSubmatch(line, -1) {
+				s := &services[len(services)-1]
+				s.patterns = append(s.patterns, regexp.MustCompile(m[1]))
+			}
+
+			if strings.Contains(line, "]") {
+				inRoutes = false
+			}
+		}
+	}
+
+	if len(services) != 4 {
+		t.Fatalf("expected 4 services in deploy.toml, found %d", len(services))
+	}
+
+	for _, s := range services {
+		if s.name == "" || len(s.patterns) == 0 {
+			t.Fatalf("service %q has no name or no routes", s.name)
+		}
+	}
+
+	for _, rt := range contractRoutes(t) {
+		path := rt[1]
+		concrete := regexp.MustCompile(`\{[^}]*\}`).ReplaceAllString(path, "x1")
+
+		got := "none"
+
+	find:
+		for _, s := range services {
+			for _, p := range s.patterns {
+				if p.MatchString(concrete) {
+					got = s.name
+					break find
+				}
+			}
+		}
+
+		if got != programOf[path] {
+			t.Errorf("%s: deploy.toml sends it to %s, want %s", path, got, programOf[path])
+		}
+	}
+}

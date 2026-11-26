@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Sili-Sudoku/api/libs/db"
 	"strings"
 	"testing"
 
@@ -11,11 +12,10 @@ import (
 	"github.com/Sili-Sudoku/api/services/community/model"
 	"github.com/Sili-Sudoku/api/services/community/postgres"
 	puzzles "github.com/Sili-Sudoku/api/services/puzzles/model"
-	"github.com/jackc/pgx/v5"
 )
 
 // The tests need TEST_DATABASE_URL and are skipped without it.
-func newUser(t *testing.T, pool pgx.Tx, name string) int64 {
+func newUser(t *testing.T, pool db.DBTX, name string) int64 {
 	t.Helper()
 	var id int64
 	err := pool.QueryRow(context.Background(),
@@ -26,7 +26,7 @@ func newUser(t *testing.T, pool pgx.Tx, name string) int64 {
 	return id
 }
 
-func newPuzzle(t *testing.T, pool pgx.Tx, id string, owner int64) {
+func newPuzzle(t *testing.T, pool db.DBTX, id string, owner int64) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(),
 		`INSERT INTO puzzles (id, body, status, delete_token_hash, owner_id) VALUES ($1, '{}', 'published', 'x', $2)`, id, owner)
@@ -86,15 +86,11 @@ func TestComment(t *testing.T) {
 		}
 	}
 	// The refused insert aborts the transaction, so it runs in a savepoint of its own.
-	sp, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := postgres.NewComment(sp).Create(ctx, &model.Comment{PuzzleID: "a", UserID: ann, Body: strings.Repeat("x", model.MaxComment+1)}); err == nil {
+	err := pool.InTx(ctx, func(sp db.DBTX) error {
+		return postgres.NewComment(sp).Create(ctx, &model.Comment{PuzzleID: "a", UserID: ann, Body: strings.Repeat("x", model.MaxComment+1)})
+	})
+	if err == nil {
 		t.Fatal("the table must refuse a long body")
-	}
-	if err := sp.Rollback(ctx); err != nil {
-		t.Fatal(err)
 	}
 	if got, err := c.Find(ctx, c1.ID); err != nil || got == nil || got.Body != "<b>hi</b>" || got.Moderation != puzzles.ModNone {
 		t.Fatalf("find: %+v %v", got, err)

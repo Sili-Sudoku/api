@@ -1,6 +1,8 @@
 go 1.27
 
 use (
+	.
+	../../libs/boot
 	../../libs/clientip
 	../../libs/db
 	../../libs/dbtest
@@ -12,11 +14,10 @@ use (
 	../../libs/stack_trace
 	../../libs/validate
 	../../migrations
-	.
-	./model
-	./postgres
-	./session
 	../community/model
 	../history/model
 	../puzzles/model
+	./model
+	./postgres
+	./session
 )

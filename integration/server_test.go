@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,12 +27,16 @@ func (many) Validate(context.Context, []byte) (validate.Verdict, error) {
 	return validate.Verdict{Valid: true, Solutions: "many"}, nil
 }
 
-// gate holds validation until the test releases it, so "pending" can be observed.
+// gate fails the engine until the test releases it, so "pending" can be observed: a failed check leaves the puzzle pending.
 type gate struct{ release chan struct{} }
 
 func (g gate) Validate(context.Context, []byte) (validate.Verdict, error) {
-	<-g.release
-	return validate.Verdict{Valid: true, Solutions: "one"}, nil
+	select {
+	case <-g.release:
+		return validate.Verdict{Valid: true, Solutions: "one"}, nil
+	default:
+		return validate.Verdict{}, errors.New("engine down")
+	}
 }
 
 func testServer(t *testing.T, v validate.Validator) (http.Handler, *worker.Worker) {
@@ -69,7 +74,7 @@ func TestPublishValidateGetDelete(t *testing.T) {
 	if body := do(h, "GET", "/v1/puzzles/"+id, "").Body.String(); strings.Contains(body, `"puzzle"`) {
 		t.Fatalf("pending puzzle leaked body: %s", body)
 	}
-	close(g.release) // lets the background job and our own call finish
+	close(g.release) // the engine works again
 	if err := svc.Validate(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,5 @@
+# Upload everything the Docker build needs. This replaces .gitignore for `gcloud builds submit`, because
+# dist-tools/validate-puzzle is git-ignored but the puzzles image must contain it.
+.git
+.github
+*.md

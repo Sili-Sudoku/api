@@ -1,7 +1,7 @@
 go 1.27
 
 use (
-	../../../libs/validate
 	.
+	../../../libs/validate
 	../../puzzles/model
 )

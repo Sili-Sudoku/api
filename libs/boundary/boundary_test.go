@@ -10,11 +10,12 @@ import (
 	"testing"
 )
 
-// programs are the four deployable areas. Each one has a cmd/<name> main and a services/<name> tree.
+// programs are the four deployable areas. Each one is the main package at the root of its services/<name> module, next to
+// its routes, endpoints and the rest of the tree. The tools (admin, migrate, seed) are mains under tools/.
 var programs = []string{"accounts", "community", "history", "puzzles"}
 
 // The rules, in short (see STYLE.md, Deployables):
-//  1. Nothing imports a program (cmd/...) or the integration tests.
+//  1. Nothing imports a program (services/<name>), a tool (tools/...) or the integration tests.
 //  2. libs do not import services, except the two listed exceptions below.
 //  3. A service imports another service only through its model, or, from its routes package, through its postgres
 //     client (wiring). Endpoints, models, workers and clients never import another service.
@@ -40,8 +41,12 @@ func check(graph map[string][]string) []string {
 }
 
 func violation(from, to string) string {
-	if strings.HasPrefix(to, "cmd/") || to == "integration" || strings.HasPrefix(to, "integration/") {
-		return "nothing may import a program or the integration tests"
+	if _, ok := programName(to); ok || strings.HasPrefix(to, "tools/") || to == "integration" || strings.HasPrefix(to, "integration/") {
+		return "nothing may import a program, a tool or the integration tests"
+	}
+
+	if _, ok := programName(from); ok {
+		return programRule(from, to)
 	}
 
 	switch {
@@ -49,8 +54,6 @@ func violation(from, to string) string {
 		return libsRule(from, to)
 	case strings.HasPrefix(from, "services/"):
 		return serviceRule(from, to)
-	case strings.HasPrefix(from, "cmd/"):
-		return programRule(from, to)
 	}
 
 	return ""
@@ -110,12 +113,16 @@ func serviceRule(from, to string) string {
 	return ""
 }
 
-func programRule(from, to string) string {
-	name := strings.TrimPrefix(from, "cmd/")
-	if !contains(programs, name) {
-		return "" // admin, migrate and seed are tools: they may reach where they need to
-	}
+// programName says if path is the main package of a program (services/<name>, not a package below it).
+func programName(path string) (string, bool) {
+	name, ok := strings.CutPrefix(path, "services/")
 
+	return name, ok && contains(programs, name)
+}
+
+// programRule is the rule for the main of a program. The tools under tools/ have none: they may reach where they need to.
+func programRule(from, to string) string {
+	name, _ := programName(from)
 	service, layer := split(to)
 	if service == "" || service == name {
 		return ""
@@ -146,8 +153,8 @@ func TestLayout(t *testing.T) {
 	}
 
 	// Guards against a loader that drops every edge, which would make the check below pass on nothing.
-	if !contains(graph["cmd/community"], "services/community/routes") {
-		t.Fatalf("known edge cmd/community -> services/community/routes is missing; got %v", graph["cmd/community"])
+	if !contains(graph["services/community"], "services/community/routes") {
+		t.Fatalf("known edge services/community -> services/community/routes is missing; got %v", graph["services/community"])
 	}
 
 	for _, v := range check(graph) {
@@ -171,9 +178,9 @@ func TestRules(t *testing.T) {
 		{"model -> other model", "services/community/model", "services/puzzles/model", false},
 		{"lib/server -> accounts session", "libs/server", "services/accounts/session", false},
 		{"mockprovider -> model", "libs/mockprovider", "services/history/model", false},
-		{"program -> own routes", "cmd/community", "services/community/routes", false},
-		{"program -> other postgres", "cmd/community", "services/history/postgres", false},
-		{"tool -> endpoints", "cmd/seed", "services/puzzles/endpoints/publish", false},
+		{"program -> own routes", "services/community", "services/community/routes", false},
+		{"program -> other postgres", "services/community", "services/history/postgres", false},
+		{"tool -> endpoints", "tools/seed", "services/puzzles/endpoints/publish", false},
 
 		{"endpoint -> other service postgres", "services/community/endpoints/feed", "services/puzzles/postgres", true},
 		{"endpoint -> other service endpoint", "services/community/endpoints/feed", "services/puzzles/endpoints/list", true},
@@ -185,10 +192,11 @@ func TestRules(t *testing.T) {
 		{"model -> own postgres", "services/puzzles/model", "services/puzzles/postgres", true},
 		{"lib -> endpoint", "libs/http_outcome", "services/puzzles/endpoints/publish", true},
 		{"lib/server -> history model", "libs/server", "services/history/model", true},
-		{"service -> program", "services/puzzles/routes", "cmd/puzzles", true},
+		{"service -> program", "services/puzzles/routes", "services/puzzles", true},
 		{"lib -> integration", "libs/dbtest", "integration", true},
-		{"program -> other routes", "cmd/accounts", "services/puzzles/routes", true},
-		{"program -> other worker", "cmd/history", "services/puzzles/worker", true},
+		{"service -> tool", "services/puzzles/routes", "tools/seed", true},
+		{"program -> other routes", "services/accounts", "services/puzzles/routes", true},
+		{"program -> other worker", "services/history", "services/puzzles/worker", true},
 	}
 
 	for _, c := range cases {
@@ -375,6 +383,112 @@ func TestWorkspaces(t *testing.T) {
 
 		if strings.Contains(strings.SplitN(string(mod), "\n", 2)[1], modulePrefix) {
 			t.Errorf("%s/go.mod requires a sibling module; siblings come from go.work, go.mod lists outside dependencies only", m)
+		}
+	}
+}
+
+// dockerPrograms are the programs that are built into images: each has a main.dockerfile next to its main package.
+var dockerPrograms = []string{"services/accounts", "services/community", "services/history", "services/puzzles", "tools/migrate"}
+
+// dockerfile is the main.dockerfile of the program in dir, made from its go.work. It copies the go.mod (and go.sum) of
+// every module in the go.work, downloads, and only then copies the modules and builds, so the image holds the program's
+// closure and nothing else, and the download layer stays cached. The Node image of puzzles also carries the validator.
+func dockerfile(t *testing.T, root, dir string) string {
+	t.Helper()
+
+	mods := workUse(t, root, dir)
+	var tops []string // the modules that no other listed module contains: copying one copies the ones inside it
+	for _, m := range mods {
+		nested := false
+		for _, o := range mods {
+			if o != m && strings.HasPrefix(m, o+"/") {
+				nested = true
+			}
+		}
+
+		if !nested {
+			tops = append(tops, m)
+		}
+	}
+
+	exists := func(path string) bool {
+		_, err := os.Stat(filepath.Join(root, path))
+
+		return err == nil
+	}
+
+	var b strings.Builder
+	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
+
+	w("# Generated by `UPDATE_DOCKERFILES=1 go test github.com/Sili-Sudoku/api/libs/boundary -run Dockerfiles`. Do not edit.")
+	w("# Builds the program in %s. Context: the api/ directory. Only the modules in its go.work are copied, so the image", dir)
+	w("# cannot depend on anything else. Dependencies are downloaded before the code is copied, so they stay cached.")
+	w("FROM golang:1.27 AS build")
+	w("WORKDIR /opt/src/project")
+	w("")
+	for _, m := range mods {
+		for _, f := range []string{"go.mod", "go.sum", "go.work.sum"} {
+			path := m + "/" + f
+			if exists(path) && (f != "go.work.sum" || m == dir) {
+				w("COPY ./%s ./%s", path, path)
+			}
+		}
+	}
+
+	w("COPY ./%s/go.work ./%s/go.work", dir, dir)
+	w("")
+	w("WORKDIR /opt/src/project/%s", dir)
+	w("RUN go mod download")
+	w("")
+	w("WORKDIR /opt/src/project")
+	for _, m := range tops {
+		w("COPY ./%s ./%s", m, m)
+	}
+
+	w("")
+	w("WORKDIR /opt/src/project/%s", dir)
+	w("RUN CGO_ENABLED=0 go build -o /out/app .")
+	w("")
+	if dir == "services/puzzles" {
+		w("# Node 24 plus the bundled validate-puzzle tool (a single file; it needs nothing else). The release script puts it in")
+		w("# dist-tools/ first (in web/: npm run build:validator, then copy web/dist-tools/validate-puzzle here). Without it the")
+		w("# program would accept every puzzle, so REQUIRE_VALIDATOR=true makes it refuse to start.")
+		w("FROM node:24-slim")
+		w("COPY --from=build /out/app /app")
+		w("COPY dist-tools/validate-puzzle /usr/local/bin/validate-puzzle")
+		w("ENV VALIDATE_CMD=/usr/local/bin/validate-puzzle")
+		w("USER node")
+	} else {
+		w("FROM gcr.io/distroless/static-debian12")
+		w("COPY --from=build /out/app /app")
+		w("USER nonroot")
+	}
+
+	w(`ENTRYPOINT ["/app"]`)
+
+	return b.String()
+}
+
+// TestDockerfiles keeps each program's main.dockerfile equal to what dockerfile makes of its go.work: the go.mod and
+// go.sum of exactly the modules it lists. A missing module would not build; an extra one would carry a dependency the
+// program does not use; a missing go.sum would fail the download. After a change of imports, `go.work` files or go.sum
+// files, run it with UPDATE_DOCKERFILES=1 to write the files, and review the diff.
+func TestDockerfiles(t *testing.T) {
+	root := apiRoot(t)
+	for _, dir := range dockerPrograms {
+		want := dockerfile(t, root, dir)
+		path := filepath.Join(root, dir, "main.dockerfile")
+		if os.Getenv("UPDATE_DOCKERFILES") != "" {
+			if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			continue
+		}
+
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != want {
+			t.Errorf("%s/main.dockerfile is out of date with its go.work: run UPDATE_DOCKERFILES=1 go test github.com/Sili-Sudoku/api/libs/boundary -run Dockerfiles", dir)
 		}
 	}
 }

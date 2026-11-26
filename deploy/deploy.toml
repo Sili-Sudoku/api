@@ -1,0 +1,128 @@
+# What `release` needs to put this project live. Run it from anywhere:  ~/dev/release/release deploy/deploy.toml
+# Paths are relative to this file. Regexes use TOML single quotes, so nothing needs escaping.
+# The routes below must keep matching contract/openapi.yaml (integration/programs_test.go checks them).
+
+[project]
+name = "sudoku"             # prefix of every cloud resource: sudoku-accounts, sudoku-gateway, secret sudoku_database_url
+gcp_project = "silical-sudoku"        # its own project: a spend cap pauses all of Cloud Run in a project, so no other project shares it
+# No billing_account: the project exists and is linked already. The budget phase reads the account from the project.
+region = "europe-west4"
+
+# Monthly spend cap on Cloud Run. At the limit Google pauses Cloud Run usage in this project. Google's cost data is late (hours,
+# sometimes more than a day), so the cap can trigger after the limit: this is a late backstop. max_instances on each service
+# is the fast limit. Currency must be the currency of the billing account.
+[budget]
+amount = 20
+currency = "EUR"
+
+# Environment of every service (a service's own env wins). The gateway puts the client address in client_ip_header
+# below, and the services are told to trust it.
+[env]
+TRUST_PROXY = "true"
+CLIENT_IP_HEADER = "X-Client-IP"
+
+[gateway]
+host = "sudoku.silical.dev" # the site and the API share this hostname, so there is no CORS and no preflight
+zone = "silical.dev"        # the Cloudflare zone that owns the host
+prefix = "/api"             # the web app calls /api/..., the gateway removes it, the services see /v1/...
+client_ip_header = "X-Client-IP"   # the header the gateway sets, whatever the browser sent
+limit_period = 60           # seconds
+limit_general = 120         # requests per client address per period
+limit_strict = 10           # for the public paths below, the ones people abuse
+namespace_ids = [2001, 2002] # Cloudflare rate-limit namespaces, unique per project (ws2wh uses 1001 and 1002)
+strict = [
+    { method = "POST", pattern = '^/v1/accounts$' },    # signup
+    { method = "POST", pattern = '^/v1/sessions$' },    # login
+    { method = "POST", pattern = '^/v1/puzzles$' },     # anonymous publish
+]
+
+[database]
+name = "sudoku"
+user = "sudoku_app"                 # the services connect as this user: select, insert, update and delete only
+                                    # (the migrate job connects as sudoku_app_migrate, the owner of the tables; see migrate_user)
+admin_secret = "database_dsn"       # the cluster login in Secret Manager; read only by the release tool, never by a service
+admin_secret_project = "silical"    # that secret stays in the old project, so the login is not copied into this one
+url_secret = "sudoku_database_url"  # created for the project; the services read it as DATABASE_URL (env_var to rename)
+                                    # the migrate job reads sudoku_database_url_migrate (migrate_secret to rename)
+
+# Checked first, before anything is created. The repository is public, so it needs a license, a README, a security policy
+# and contributing rules, and no file may hold a secret. The commands are the same ones that CI runs (they must not change
+# anything). The go test run includes the check that the generated main.dockerfile files match their go.work.
+[check]
+public = true
+commands = [
+    'cd .. && test -z "$(gofmt -l .)"',
+    'cd .. && go vet github.com/Sili-Sudoku/api/...',
+    'cd .. && go test github.com/Sili-Sudoku/api/...',
+]
+
+[build]
+context = ".."              # api/
+# Run before the images are built. The puzzles image needs the validator from the web repo.
+pre = [
+    "cd ../../web && npm run build:validator",
+    "mkdir -p ../dist-tools && cp ../../web/dist-tools/validate-puzzle ../dist-tools/validate-puzzle",
+]
+
+[migrate]
+program = "migrate"         # runs as the Cloud Run job sudoku-migrate before the services are deployed
+dockerfile = "tools/migrate/main.dockerfile"
+
+# One Cloud Run service per program; dockerfile is relative to [build] context. The gateway tries the routes in this order; the first match wins.
+[[service]]
+name = "history"
+dockerfile = "services/history/main.dockerfile"
+memory = "256Mi"
+max_instances = 2
+routes = ['^/v1/me/history(/[^/]+)?$']
+
+[[service]]
+name = "accounts"
+dockerfile = "services/accounts/main.dockerfile"
+memory = "256Mi"
+max_instances = 2
+routes = ['^/v1/(accounts|sessions(/current)?|me)$']
+
+[[service]]
+name = "community"
+dockerfile = "services/community/main.dockerfile"
+memory = "256Mi"
+max_instances = 2
+routes = ['^/v1/(me/(following|feed)|users/[^/]+(/follow)?|comments/[^/]+(/report)?|puzzles/[^/]+/(ratings|comments|stats))$']
+
+[[service]]
+name = "puzzles"
+dockerfile = "services/puzzles/main.dockerfile"
+memory = "512Mi"
+max_instances = 2           # scales to zero: validation runs inside requests, so CPU is only needed during them
+env = { REQUIRE_VALIDATOR = "true" }
+routes = ['^/v1/puzzles(/[^/]+(/(owner|report))?)?$']
+
+# Checked through the public address after the deploy. expect is a list of acceptable status codes.
+[[smoke]]
+path = "/api/healthz"
+expect = [204]
+
+[[smoke]]
+path = "/api/v1/puzzles"            # puzzles service and the database
+expect = [200]
+
+[[smoke]]
+path = "/api/v1/me"                 # accounts service; 401 means it answered and found no session
+expect = [401]
+
+[[smoke]]
+path = "/api/v1/me/history"
+expect = [401]
+
+[[smoke]]
+path = "/api/v1/me/feed"            # community service
+expect = [401]
+
+[[smoke]]
+method = "POST"
+path = "/api/v1/puzzles"            # a body that is not JSON is refused before anything is stored. (Not "{}": that is valid JSON,
+                                    # so the API stores it as pending and the engine rejects it, which writes a row on every release.)
+headers = { "X-Requested-With" = "sudoku", "Content-Type" = "application/json" }
+body = "not json"
+expect = [400]

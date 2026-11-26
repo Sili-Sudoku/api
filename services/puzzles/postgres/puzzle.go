@@ -8,7 +8,6 @@ import (
 	"github.com/Sili-Sudoku/api/libs/db"
 	"github.com/Sili-Sudoku/api/libs/validate"
 	"github.com/Sili-Sudoku/api/services/puzzles/model"
-	"github.com/jackc/pgx/v5"
 )
 
 type Puzzle struct {
@@ -20,7 +19,7 @@ func NewPuzzle(conn db.DBTX) *Puzzle { return &Puzzle{db: conn} }
 const cols = `id, body, status, verdict, delete_token_hash, report_count, moderation, coalesce(owner_id, 0), created_at,
 	title, author, source, difficulty, tags, variants, rating_count, rating_sum, diff_count, diff_sum`
 
-func scan(row pgx.Row) (*model.Puzzle, error) {
+func scan(row db.Row) (*model.Puzzle, error) {
 	var (
 		p       model.Puzzle
 		status  string
@@ -31,7 +30,7 @@ func scan(row pgx.Row) (*model.Puzzle, error) {
 	err := row.Scan(&p.ID, &p.Body, &status, &verdict, &hash, &p.Reports, &mod, &p.OwnerID, &p.CreatedAt,
 		&p.Title, &p.Author, &p.Source, &p.Difficulty, &p.Tags, &p.Variants,
 		&p.Ratings.StarsCount, &p.Ratings.StarsSum, &p.Ratings.DifficultyCount, &p.Ratings.DifficultySum)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return nil, model.ErrNotFound
 	}
 	if err != nil {
@@ -93,7 +92,7 @@ func (this *Puzzle) AddReport(ctx context.Context, id string, userID int64) (int
 		     ON CONFLICT DO NOTHING RETURNING 1)
 		 UPDATE puzzles SET report_count = report_count + (SELECT count(*) FROM ins)
 		  WHERE id = $1 RETURNING report_count`, id, userID).Scan(&n)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return 0, model.ErrNotFound
 	}
 

@@ -21,7 +21,7 @@ import (
 	"github.com/Sili-Sudoku/api/services/puzzles/model"
 )
 
-// ValidateTimeout bounds one background validation.
+// ValidateTimeout bounds the validation inside a publish request.
 const ValidateTimeout = 60 * time.Second
 
 // Text limits. They match LIMITS in the web repo's src/runtime/serialization.ts.
@@ -94,14 +94,14 @@ func (this *Endpoint) Execute(ctx context.Context, req *EndpointReq) (resp *Endp
 		return nil, st.StackTrace(this.db.Puzzle.Create, err)
 	}
 
-	// The request only stores the puzzle as pending; it must not wait for the engine, nor end it when the client leaves.
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), ValidateTimeout)
-		defer cancel()
-		if err := this.validator.Validate(ctx, id); err != nil {
-			log.Printf("validate %s: %v", id, err)
-		}
-	}()
+	// The engine runs here, inside the request, because a host that only gives CPU to requests (Cloud Run) would starve a
+	// background job. The client leaving does not stop it. The answer stays 202 "pending" and the client reads the result:
+	// if the engine failed, the puzzle stays pending and the next read of it tries again.
+	vctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ValidateTimeout)
+	defer cancel()
+	if err := this.validator.Validate(vctx, id); err != nil {
+		log.Printf("validate %s: %v", id, err)
+	}
 
 	resp = &EndpointResp{ID: id, Status: string(model.Pending)}
 	// The same bytes always give the same id, so a repeat publish returns no token; an owner needs none.

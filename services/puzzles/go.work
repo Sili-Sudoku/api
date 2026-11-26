@@ -1,6 +1,8 @@
 go 1.27
 
 use (
+	.
+	../../libs/boot
 	../../libs/clientip
 	../../libs/cursor
 	../../libs/db
@@ -17,7 +19,6 @@ use (
 	../accounts/session
 	../community/model
 	../history/model
-	.
 	./model
 	./postgres
 )
