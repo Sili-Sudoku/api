@@ -34,6 +34,7 @@ Or a throwaway Postgres:
 | Area | Package | Board card(s) | State |
 |---|---|---|---|
 | Publish, list, get, claim, report, delete | `services/puzzles` (`endpoints/{publish,list,getpuzzle,claim,report,deletepuzzle}`, `postgres`, `worker`, `model`) | #241 report/delete + anonymous publish; #57 discovery; #219 sharing | working, Postgres only |
+| SudokuPad import fetch (`GET /v1/sudokupad?id=`) | `services/puzzles/endpoints/sudokupad` | | working: fetches a short sudokupad.app link for the browser (no CORS there). Open, limited per address and globally (`Limits.SudokuPad*`; the global count is per instance). Optional: pasted scl data imports without it |
 | Engine validation | `libs/validate`, `services/puzzles/worker` | Surface uniqueness at publish; solver | working (exec + timeout; the worker runs it inside the publish request, retried on read while pending) |
 | Signup, login, logout, me, bio, delete account | `services/accounts` (`endpoints/{signup,login,logout,getme,patchme,deleteme}`, `postgres`, `session`, `model`), `libs/password` | Community: accounts (#56) | working, Postgres only |
 | Rate limits | `libs/ratelimit` (each area's `routes` package owns its limits) | | working (in-process) |

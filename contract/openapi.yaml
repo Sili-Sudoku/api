@@ -103,6 +103,14 @@ components:
         - "pending"
         - "published"
         - "rejected"
+    SudokuPadData:
+      type: "object"
+      required:
+        - "data"
+      properties:
+        data:
+          type: "string"
+          description: "The scl data, as sudokupad.app gave it."
     PublishResult:
       type: "object"
       required:
@@ -275,6 +283,48 @@ paths:
       responses:
         "204":
           description: "The API is up."
+  "/v1/sudokupad":
+    get:
+      operationId: "fetchSudokuPad"
+      summary: "Read a puzzle from a short sudokupad.app link for the browser, which cannot (no CORS headers). Limited per client address and for everybody together."
+      parameters:
+        - name: "id"
+          in: "query"
+          required: true
+          schema:
+            type: "string"
+            pattern: "^[A-Za-z0-9_-]{4,40}(/[A-Za-z0-9_-]{2,40})?$"
+      responses:
+        "200":
+          description: "The puzzle data."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/SudokuPadData"
+        "400":
+          description: "Not a SudokuPad puzzle id (code bad_id)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "sudokupad.app has no puzzle for this id (code not_found)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: "Too many imports from this address (code rate_limited) or from everybody (code busy)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "502":
+          description: "sudokupad.app cannot be read right now (code upstream)."
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/Error"
   "/v1/accounts":
     post:
       operationId: "signUp"

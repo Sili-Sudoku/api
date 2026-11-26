@@ -21,6 +21,7 @@ var programOf = map[string]string{
 	"/v1/sessions/current":      "accounts",
 	"/v1/me":                    "accounts",
 	"/v1/me/history":            "history",
+	"/v1/sudokupad":             "puzzles",
 	"/v1/me/history/{puzzleId}": "history",
 	"/v1/me/following":          "community",
 	"/v1/me/feed":               "community",

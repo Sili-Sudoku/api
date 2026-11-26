@@ -20,7 +20,7 @@
 		@community path_regexp ^/v1/(me/(following|feed)|users/[^/]+(/follow)?|comments/[^/]+(/report)?|puzzles/[^/]+/(ratings|comments|stats))$
 		reverse_proxy @community {$COMMUNITY_UPSTREAM:localhost:8083}
 
-		@puzzles path_regexp ^/v1/puzzles(/[^/]+(/(owner|report))?)?$
+		@puzzles path_regexp ^/v1/(puzzles(/[^/]+(/(owner|report))?)?|sudokupad)$
 		reverse_proxy @puzzles {$PUZZLES_UPSTREAM:localhost:8082}
 
 		respond 404

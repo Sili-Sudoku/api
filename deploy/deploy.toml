@@ -34,6 +34,7 @@ strict = [
     { method = "POST", pattern = '^/v1/accounts$' },    # signup
     { method = "POST", pattern = '^/v1/sessions$' },    # login
     { method = "POST", pattern = '^/v1/puzzles$' },     # anonymous publish
+    { method = "GET", pattern = '^/v1/sudokupad$' },    # SudokuPad import: every call fetches from sudokupad.app
 ]
 
 [database]
@@ -96,7 +97,7 @@ dockerfile = "services/puzzles/main.dockerfile"
 memory = "512Mi"
 max_instances = 2           # scales to zero: validation runs inside requests, so CPU is only needed during them
 env = { REQUIRE_VALIDATOR = "true" }
-routes = ['^/v1/puzzles(/[^/]+(/(owner|report))?)?$']
+routes = ['^/v1/(puzzles(/[^/]+(/(owner|report))?)?|sudokupad)$']
 
 # Checked through the public address after the deploy. expect is a list of acceptable status codes.
 [[smoke]]
