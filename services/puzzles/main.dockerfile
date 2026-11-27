@@ -64,6 +64,8 @@ RUN CGO_ENABLED=0 go build -o /out/app .
 FROM node:24-slim
 COPY --from=build /out/app /app
 COPY dist-tools/validate-puzzle /usr/local/bin/validate-puzzle
+# The slim image has no CA certificates, and Go needs them for HTTPS (the SudokuPad import fetches sudokupad.app).
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENV VALIDATE_CMD=/usr/local/bin/validate-puzzle
 USER node
 ENTRYPOINT ["/app"]

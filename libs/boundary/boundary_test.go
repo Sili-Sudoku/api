@@ -456,6 +456,8 @@ func dockerfile(t *testing.T, root, dir string) string {
 		w("FROM node:24-slim")
 		w("COPY --from=build /out/app /app")
 		w("COPY dist-tools/validate-puzzle /usr/local/bin/validate-puzzle")
+		w("# The slim image has no CA certificates, and Go needs them for HTTPS (the SudokuPad import fetches sudokupad.app).")
+		w("COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt")
 		w("ENV VALIDATE_CMD=/usr/local/bin/validate-puzzle")
 		w("USER node")
 	} else {
